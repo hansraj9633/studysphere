@@ -15,7 +15,7 @@ import {
 
 const menuItems = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
-  { name: "Upload Materials", href: "/admin/upload", icon: Upload },
+  { name: "Upload Materials", href: "/admin", icon: Upload },
   { name: "Subjects", href: "/admin/subjects", icon: BookOpen },
   { name: "PYQs", href: "/admin/pyqs", icon: FileText },
   { name: "Analytics", href: "/admin/analytics", icon: BarChart3 },

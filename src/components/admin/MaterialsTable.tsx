@@ -1,47 +1,52 @@
 "use client";
 
-import { Edit2, Trash2, FileText, FileArchive } from "lucide-react";
+import { Edit2, Trash2, FileText, FileArchive, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
-const materials = [
-  {
-    id: 1,
-    name: "Theory of Structures Unit 3 Notes",
-    subject: "Theory of Structures",
-    semester: "Semester 5",
-    downloads: "1.2k",
-    date: "Oct 24, 2026",
-    type: "pdf",
-  },
-  {
-    id: 2,
-    name: "Highway Engineering PYQs 2020-2025",
-    subject: "Highway Engineering",
-    semester: "Semester 5",
-    downloads: "850",
-    date: "Oct 22, 2026",
-    type: "zip",
-  },
-  {
-    id: 3,
-    name: "Fluid Mechanics Formula Sheet",
-    subject: "Fluid Mechanics",
-    semester: "Semester 3",
-    downloads: "2.3k",
-    date: "Oct 20, 2026",
-    type: "pdf",
-  },
-  {
-    id: 4,
-    name: "Engineering Math IV Assignment",
-    subject: "Engineering Mathematics",
-    semester: "Semester 4",
-    downloads: "420",
-    date: "Oct 18, 2026",
-    type: "pdf",
-  },
-];
+interface Material {
+  _id: string;
+  title: string;
+  subject: string;
+  semester: string;
+  downloads: number;
+  uploadedAt: string;
+  fileType: string;
+  fileUrl: string;
+}
 
 export default function MaterialsTable() {
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+
+  const fetchMaterials = async () => {
+    try {
+      const response = await fetch("/api/materials");
+      const result = await response.json();
+      if (result.success) {
+        setMaterials(result.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch materials:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMaterials();
+
+    // Listen for custom upload success event to refresh table
+    const handleUploadSuccess = () => {
+      fetchMaterials();
+    };
+    window.addEventListener("materialUploaded", handleUploadSuccess);
+
+    return () => {
+      window.removeEventListener("materialUploaded", handleUploadSuccess);
+    };
+  }, []);
   return (
     <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-xl overflow-hidden">
       <div className="p-6 border-b border-zinc-800/60 flex justify-between items-center">
@@ -64,36 +69,61 @@ export default function MaterialsTable() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {materials.map((mat) => (
-              <tr key={mat.id} className="hover:bg-zinc-800/20 transition-colors group">
-                <td className="px-6 py-4 font-medium text-zinc-200 flex items-center gap-3">
-                  {mat.type === "pdf" ? (
-                    <FileText size={16} className="text-blue-400" />
-                  ) : (
-                    <FileArchive size={16} className="text-amber-400" />
-                  )}
-                  <span className="truncate max-w-[200px] sm:max-w-xs">{mat.name}</span>
-                </td>
-                <td className="px-6 py-4 hidden md:table-cell">{mat.subject}</td>
-                <td className="px-6 py-4 hidden lg:table-cell">
-                  <span className="px-2.5 py-1 rounded-md bg-zinc-800/50 border border-zinc-700/50 text-xs">
-                    {mat.semester}
-                  </span>
-                </td>
-                <td className="px-6 py-4">{mat.downloads}</td>
-                <td className="px-6 py-4 hidden sm:table-cell text-zinc-500">{mat.date}</td>
-                <td className="px-6 py-4 text-right">
-                  <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="p-1.5 text-zinc-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-md transition-colors">
-                      <Edit2 size={16} />
-                    </button>
-                    <button className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors">
-                      <Trash2 size={16} />
-                    </button>
+            {isLoading ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center text-zinc-500 gap-3">
+                    <Loader2 size={24} className="animate-spin" />
+                    <span className="text-sm">Loading materials...</span>
                   </div>
                 </td>
               </tr>
-            ))}
+            ) : materials.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center text-zinc-500 gap-2">
+                    <FileText size={32} className="opacity-20 mb-2" />
+                    <span className="text-sm font-medium text-zinc-400">No materials found</span>
+                    <span className="text-xs">Upload your first material above.</span>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              materials.map((mat) => (
+                <tr key={mat._id} className="hover:bg-zinc-800/20 transition-colors group">
+                  <td className="px-6 py-4 font-medium text-zinc-200 flex items-center gap-3">
+                    {mat.fileType.toLowerCase() === "pdf" ? (
+                      <FileText size={16} className="text-blue-400" />
+                    ) : (
+                      <FileArchive size={16} className="text-amber-400" />
+                    )}
+                    <a href={mat.fileUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[200px] sm:max-w-xs hover:underline">
+                      {mat.title}
+                    </a>
+                  </td>
+                  <td className="px-6 py-4 hidden md:table-cell capitalize">{mat.subject.replace("_", " ")}</td>
+                  <td className="px-6 py-4 hidden lg:table-cell">
+                    <span className="px-2.5 py-1 rounded-md bg-zinc-800/50 border border-zinc-700/50 text-xs">
+                      Semester {mat.semester}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">{mat.downloads}</td>
+                  <td className="px-6 py-4 hidden sm:table-cell text-zinc-500">
+                    {new Date(mat.uploadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="p-1.5 text-zinc-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-md transition-colors" title="Edit">
+                        <Edit2 size={16} />
+                      </button>
+                      <button className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors" title="Delete">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
