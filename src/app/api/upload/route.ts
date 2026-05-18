@@ -1,110 +1,105 @@
 import { NextResponse } from "next/server";
-import cloudinary from "@/lib/cloudinary";
+import { v2 as cloudinary } from "cloudinary";
 import clientPromise from "@/lib/mongodb";
 
-export async function POST(request: Request) {
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+export async function POST(req: Request) {
   try {
-    const formData = await request.formData();
-    
+    console.log("----------------------------------------");
+    console.log("[Upload API] 1. Request received");
+
+    const formData = await req.formData();
     const file = formData.get("file") as File;
     const title = formData.get("title") as string;
     const subject = formData.get("subject") as string;
     const semester = formData.get("semester") as string;
     const fileType = formData.get("fileType") as string || "PDF";
 
-    console.log("----------------------------------------");
-    console.log(`[Upload API] Received upload request: ${title}`);
-    console.log(`[Upload API] Subject: ${subject}, Semester: ${semester}`);
-
-    // Validate inputs
     if (!file || !title || !subject || !semester) {
-      return NextResponse.json(
-        { success: false, message: "Missing required fields." },
-        { status: 400 }
-      );
+      console.error("[Upload API] Validation Failed: Missing fields");
+      return NextResponse.json({ success: false, message: "Missing required fields" }, { status: 400 });
     }
 
-    // Validate file type (only allow PDFs)
-    if (file.type !== "application/pdf") {
-      return NextResponse.json(
-        { success: false, message: "Only PDF files are allowed." },
-        { status: 400 }
-      );
-    }
+    console.log(`[Upload API] 2. Parsed FormData -> Title: ${title}, File size: ${file.size}`);
 
-    // Convert the File object to a Buffer to send to Cloudinary
-    console.log(`[Upload API] Converting file to buffer (${file.size} bytes)...`);
+    // Buffer conversion
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    console.log("[Upload API] Starting Cloudinary upload stream...");
-    // Upload to Cloudinary using a Promise wrapper around upload_stream
-    const uploadResult: any = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { 
-          folder: "studysphere/materials",
-          resource_type: "raw" // Required for PDFs and non-image files
-        },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      );
-      
-      // End the stream with the buffer
-      uploadStream.end(buffer);
-    });
-
-    if (!uploadResult || !uploadResult.secure_url) {
-      console.error("[Upload API] Cloudinary upload failed: No secure_url returned");
-      throw new Error("Failed to upload to Cloudinary");
+    // 1. Cloudinary Upload (Strict mode, no fallbacks)
+    console.log("[Upload API] 3. Uploading to Cloudinary...");
+    let uploadResult: any;
+    
+    try {
+      uploadResult = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: "studysphere/materials", resource_type: "raw" },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
+        uploadStream.end(buffer);
+      });
+    } catch (cloudError: any) {
+      console.error("[Upload API] Cloudinary Error:", cloudError);
+      throw new Error(`Cloudinary Upload Failed: ${cloudError.message || JSON.stringify(cloudError)}`);
     }
 
     const fileUrl = uploadResult.secure_url;
-    console.log(`[Upload API] Cloudinary upload SUCCESS! URL: ${fileUrl}`);
+    const publicId = uploadResult.public_id;
+    console.log(`[Upload API] 4. Cloudinary SUCCESS: ${fileUrl}`);
 
-    // Save metadata to MongoDB
-    console.log("[Upload API] Connecting to MongoDB...");
-    const client = await clientPromise;
-    const db = client.db();
-    
+    // 2. Metadata Preparation
     const newMaterial = {
       title,
       subject,
       semester,
-      fileUrl,
       fileType,
+      fileUrl,
+      publicId,
       downloads: 0,
-      uploadedAt: new Date(),
+      uploadedAt: new Date().toISOString(),
     };
 
+    // 3. MongoDB Upload (Strict mode, no fallbacks)
+    console.log("[Upload API] 5. Connecting to MongoDB Atlas...");
+    const client = await clientPromise;
+    const db = client.db("studysphere"); // Explicitly target 'studysphere' database
+    
+    // Ensure collection exists (not strictly necessary as insertOne creates it, but good practice)
     const result = await db.collection("materials").insertOne(newMaterial);
-    console.log(`[Upload API] MongoDB insert SUCCESS! Document ID: ${result.insertedId}`);
+    
+    console.log(`[Upload API] 6. MongoDB SUCCESS. ID: ${result.insertedId}`);
+    console.log("[Upload API] 7. Upload process fully completed!");
     console.log("----------------------------------------");
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Material uploaded successfully",
-        data: {
-          id: result.insertedId,
-          fileUrl,
-        }
-      },
-      { status: 201 }
-    );
-    
-  } catch (error) {
+    return NextResponse.json({
+      success: true,
+      message: "Material uploaded successfully",
+      data: { 
+        id: result.insertedId, 
+        fileUrl, 
+        title, 
+        subject, 
+        semester, 
+        fileType, 
+        uploadedAt: newMaterial.uploadedAt 
+      }
+    }, { status: 201 });
+
+  } catch (error: any) {
     console.error("----------------------------------------");
-    console.error("[Upload API] CRITICAL ERROR:");
-    console.error(error);
+    console.error("[Upload API] CRITICAL ERROR:", error.message || error);
     console.error("----------------------------------------");
     return NextResponse.json(
-      { 
-        success: false, 
-        message: "Failed to process upload", 
-        error: error instanceof Error ? error.message : "Unknown error" 
-      },
+      { success: false, message: "Internal Server Error", error: error.message || "Unknown error" },
       { status: 500 }
     );
   }

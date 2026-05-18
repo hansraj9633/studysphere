@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("studysphere"); // Explicitly target 'studysphere' database
     
     // Fetch materials sorted by newest first
     const materials = await db
@@ -14,20 +16,13 @@ export async function GET() {
       .toArray();
 
     return NextResponse.json(
-      {
-        success: true,
-        data: materials,
-      },
+      { success: true, materials: materials, data: materials },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("Materials Fetch API Error:", error);
+  } catch (error: any) {
+    console.error("[Materials API] CRITICAL ERROR:", error.message || error);
     return NextResponse.json(
-      { 
-        success: false, 
-        message: "Failed to fetch materials", 
-        error: error instanceof Error ? error.message : "Unknown error" 
-      },
+      { success: false, message: "Failed to fetch materials", error: error.message || "Unknown error" },
       { status: 500 }
     );
   }
